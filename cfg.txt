@@ -1,0 +1,23 @@
+# Start variable
+S <- E | A | M | N
+
+# Exponent operands
+P <- N | (S)
+# Exponent variable
+E <- E^P | P^E | P
+
+# Multiply operands
+Q <- E | P
+# Multiply variable
+M <- M*Q | M/Q | Q/M | Q*M | Q
+
+# Addition operands
+R <- M | Q
+# Addition variable
+A <- A+R | A-R | R+A | R-A | R | -R
+ 
+# Number variable
+N <- DN | N.N
+# Digit variable
+D <- 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9
+
