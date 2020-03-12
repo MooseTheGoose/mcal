@@ -1,5 +1,5 @@
 # Start variable
-S <- E | A | M | N
+S <- E | A | M
 
 # Exponent operands
 P <- N | (S)
