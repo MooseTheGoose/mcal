@@ -1,10 +1,3 @@
-//
-//  structures.c
-//  
-//
-//  Created by Youssef Moosa on 3/11/20.
-//
-
 #include "structures.h"
 #include <glib.h>
 #include <stdio.h>
@@ -28,6 +21,11 @@ ParseTreeNode *newPTreeNode(unsigned int variable)
 void insertPTreeNode(ParseTreeNode *prev, ParseTreeNode *ins)
 {
     prev->node.next = &ins->node;
+}
+
+void unlinkPTreeNode(ParseTreeNode *parent, ParseTreeNode *rm)
+{
+    parent->children = (ParseTreeNode *)g_slist_remove_link(&parent->children->node, &rm->node);
 }
 
 
