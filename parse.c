@@ -1,6 +1,5 @@
 #include "parse.h"
-#include "variables.h"
-#include "sutils.h"
+#include "strvutils.h"
 #include "error.h"
 #include <ctype.h>
 #include <assert.h>
@@ -9,214 +8,278 @@
 #include <string.h>
 #include <stdlib.h>
 
-
-
-int parseStart(GNode *parent, char *expr)
+GNode *deriveStart(char **tokens)
 {
-    GNode *startTree = g_node_new(GUINT_TO_POINTER(START));
-    int status;
-    
-    printf("parseStart: %s\n",  expr);
-    
-    status = parseExp(startTree, expr) || parseMul(startTree, expr)
-    || parseAdd(startTree, expr);
-    
-    g_node_insert(parent, 0, startTree);
-    cleanOnFail(startTree, status);
+    GNode *parseTree = NULL;
+    char *currToken = *tokens;
 
-    return status;
-}
+    if(currToken)
+    {
+        GNode *children[3];
 
-int parseExop(GNode *parent, char *exop)
-{
-    int status = 0;
-    char *exopTrim = trim(exop);
-    GNode *exopTree = g_node_new(GUINT_TO_POINTER(EXOP));
-    
-    printf("parseExop: %s\n", exopTrim);
-    
-    if(*exopTrim == '(')
-    {
-        char *exopTrimEnd = strrchr(exopTrim, ')');
-        char *expr;
-        int size;
-                
-        dieWhen(!exopTrimEnd, "Error: Mismatched left parantheses in expression");
-        
-        expr = substring(exopTrim+1, exopTrimEnd);
-        
-        GNode *left = g_node_new(GUINT_TO_POINTER('('));
-        GNode *right = g_node_new(GUINT_TO_POINTER(')'));
-        
-        g_node_insert(exopTree, 0, right);
-        status = parseStart(exopTree, expr);
-        g_node_insert(exopTree, 0, left);
-        
-        g_free(expr);
-        
-    }
-    else
-    {
-        status = parseNum(exopTree, exopTrim);
-    }
-    
-    g_free(exopTrim);
-    g_node_insert(parent, 0, exopTree);
-    cleanOnFail(exopTree, status);
-    
-    return status;
-}
-
-int parseExp(GNode *parent, char *exp)
-{
-    GNode *expTree = g_node_new(GUINT_TO_POINTER(EXP));
-    char *karat = strchr(exp, '^');
-    int status = 0;
-    
-    printf("parseExp: %s\n", exp);
-    
-    if(karat)
-    {
-        char *lh = exp, *rh = karat + 1;
-        char *lefthand = substring(lh, karat);
-        char *righthand = substring(rh, rh + strlen(rh));
-        
-        GNode *kar = g_node_new(GUINT_TO_POINTER('^'));
-        
-        if(parseExop(expTree, righthand))
+        if((children[0] = deriveNum(tokens))
+            || (children[0] = deriveUnaryMinus(tokens))
+            || (children[0] = deriveAdd(tokens))
+            || (children[0] = deriveMult(tokens))
+            || (children[0] = deriveExp(tokens)))
         {
-            status = parseExp(expTree, lefthand);
+            parseTree = g_node_new(g_strdup("START"));
+            g_node_prepend(parseTree, children[0]);
+        }
+        else if(!strcmp(currToken, "("))
+        {
+            char **rightMostPara = strvrstr(++tokens, ")");
+            char **newTokens;
+            
+            if(rightMostPara)
+            {
+                newTokens = strndupv(tokens, rightMostPara - tokens);
+                
+                if(newTokens && !*(rightMostPara + 1)
+                   && (children[1] = deriveStart(newTokens)))
+                {
+                    parseTree = g_node_new(g_strdup("START"));
+                    children[0] = g_node_new(g_strdup("("));
+                    children[2] = g_node_new(g_strdup(")"));
+                    g_node_prepend(parseTree, children[2]);
+                    g_node_prepend(parseTree, children[1]);
+                    g_node_prepend(parseTree, children[0]);
+                }
+                g_free(newTokens);
+            }
+        }
+
+    }     
+
+    return parseTree;
+}
+
+GNode *deriveNum(char **tokens)
+{
+    GNode *parseTree = NULL;
+    char *currToken = *tokens;
+    
+    if(currToken && isdigit(*currToken) && !*(tokens + 1))
+    {
+        GNode *child = g_node_new(g_new(double, 1));
+        *(double *)child->data = strtod(currToken, NULL);
+        parseTree = g_node_new(g_strdup("NUMBER"));
+        g_node_prepend(parseTree, child);
+    }
+    
+    return parseTree;
+}
+
+GNode *deriveMultOp(char **tokens)
+{
+    GNode *parseTree = NULL;
+    GNode *child;
+    
+    if((child = deriveExp(tokens)) || (child = deriveExpOp(tokens)))
+    {
+        parseTree = g_node_new(g_strdup("MULTOP"));
+        g_node_prepend(parseTree, child);
+    }
+    
+    return parseTree;
+}
+
+GNode *deriveMult(char **tokens)
+{
+    GNode *parseTree = NULL;
+    char **newTokens;
+    
+    char **operator;
+    
+    if((operator = strvrstr(tokens, "*"))
+        || (operator = strvrstr(tokens, "/")))
+    {
+        GNode *children[3];
+        newTokens = strndupv(tokens, operator - tokens);
+        
+        if((children[2] = deriveMultOp(operator + 1)))
+        {
+            if((children[0] = deriveMult(newTokens))
+               || (children[0] = deriveMultOp(newTokens)))
+            {
+                parseTree = g_node_new(g_strdup("MULT"));
+                children[1] = g_node_new(g_strdup(*operator));
+                g_node_prepend(parseTree, children[2]);
+                g_node_prepend(parseTree, children[1]);
+                g_node_prepend(parseTree, children[0]);
+            }
+            else
+            {
+                destroyParseTree(children[2]);
+            }
+        }
+        
+        g_free(newTokens);
+    }
+    
+    return parseTree;
+}
+
+GNode *deriveAddOp(char **tokens)
+{
+    GNode *parseTree = NULL;
+    GNode *child;
+    
+    if((child = deriveMultOp(tokens)) || (child = deriveMult(tokens)))
+    {
+        parseTree = g_node_new(g_strdup("ADDOP"));
+        g_node_prepend(parseTree, child);
+    }
+    return parseTree;
+}
+
+GNode *deriveAdd(char **tokens)
+{
+    GNode *parseTree = NULL;
+    char **newTokens;
+    char **operator;
+    char *first = *tokens;
+    GNode *child;
+    
+    if((operator = strvrstr(tokens, "+"))
+        || (operator = strvrstr(tokens, "-")))
+    {
+        GNode *children[3];
+        newTokens = strndupv(tokens, operator - tokens);
+        
+        if((children[2] = deriveAddOp(operator + 1)))
+        {
+            if((children[0] = deriveAdd(newTokens))
+                || (children[0] = deriveAddOp(newTokens)))
+            {
+                parseTree = g_node_new(g_strdup("ADD"));
+                children[1] = g_node_new(g_strdup(*operator));
+                g_node_prepend(parseTree, children[2]);
+                g_node_prepend(parseTree, children[1]);
+                g_node_prepend(parseTree, children[0]);
+            }
+            else
+            {
+                destroyParseTree(children[2]);
+            }
+        }
+        
+        g_free(newTokens);
+    }
+    
+    return parseTree;
+}
+
+GNode *deriveUnaryMinusOp(char **tokens)
+{
+    GNode *parseTree = NULL;
+    char *first = *tokens;
+    GNode *child;
+    char **temp = tokens;
+    
+    
+    if(first && !strcmp(first, "("))
+    {
+        GNode *children[3];
+        
+        char **rightMostPara = strvrstr(++tokens, ")");
+        char **newTokens;
+        
+        if(rightMostPara)
+        {
+            newTokens = strndupv(tokens, rightMostPara - tokens);
+            
+            if(newTokens && !*(rightMostPara + 1)
+               && (children[1] = deriveStart(newTokens)))
+            {
+                parseTree = g_node_new(g_strdup("UNARYMINUSOP"));
+                children[0] = g_node_new(g_strdup("("));
+                children[2] = g_node_new(g_strdup(")"));
+                g_node_prepend(parseTree, children[2]);
+                g_node_prepend(parseTree, children[1]);
+                g_node_prepend(parseTree, children[0]);
+            }
+            g_free(newTokens);
+        }
+    }
+    else if((child = deriveNum(tokens)))
+    {
+        parseTree = g_node_new(g_strdup("UNARYMINUSOP"));
+        g_node_prepend(parseTree, child);
+    }
+    
+    return parseTree;
+}
+
+GNode *deriveUnaryMinus(char **tokens)
+{
+    GNode *parseTree = NULL;
+    GNode *child;
+    char *first = *tokens;
+
+    if(first && !strcmp(first, "-") && (child = deriveUnaryMinusOp(tokens + 1)))
+    {
+        parseTree = g_node_new(g_strdup("UNARYMINUS"));
+        g_node_prepend(parseTree, child);
+        g_node_prepend(parseTree, g_node_new(g_strdup("-"))); 
+    }
+
+    return parseTree;
+}
+
+GNode *deriveExpOp(char **tokens)
+{
+    GNode *parseTree = NULL;
+    GNode *child;
+    
+    if((child = deriveUnaryMinusOp(tokens)) || (child = deriveUnaryMinus(tokens)))
+    {
+        parseTree = g_node_new(g_strdup("EXPOP"));
+        g_node_prepend(parseTree, child);
+    }
+    return parseTree;
+}
+
+GNode *deriveExp(char **tokens)
+{
+    GNode *parseTree = NULL;
+    GNode *children[3];
+    char **operator = strvrstr(tokens, "^");
+    char **temp;
+    char **newToken;
+    
+    if(operator && (children[2] = deriveExpOp(operator + 1)))
+    {
+        char **newTokens = strndupv(tokens, operator - tokens);
+        
+        if((children[0] = deriveExp(newTokens))
+            || (children[0] = deriveExpOp(newTokens)))
+        {
+            parseTree = g_node_new(g_strdup("EXP"));
+            children[1] = g_node_new(g_strdup("^"));
+            g_node_prepend(parseTree, children[2]);
+            g_node_prepend(parseTree, children[1]);
+            g_node_prepend(parseTree, children[0]);
         }
         else
         {
-            status = parseExp(expTree, righthand) && parseExop(expTree, lefthand);
+            destroyParseTree(children[2]);
         }
-        
-        g_node_insert(expTree, 1, kar);
-        
-        g_free(lefthand);
-        g_free(righthand);
-        
-    }
-    else
-    {
-        status = parseExop(expTree, exp);
+        g_free(newTokens);
     }
     
-    g_node_insert(parent, 0, expTree);
-    cleanOnFail(expTree, status);
-    
-    return status;
+    return parseTree;
 }
 
-int parseMulop(GNode *parent, char *mulop)
+gboolean freeNodeData(GNode *node, gpointer dummy)
 {
-    GNode *mulopTree = g_node_new(GUINT_TO_POINTER(MULOP));
-    
-    int status = parseExp(mulopTree, mulop) || parseExop(mulopTree, mulop);
-    
-    g_node_insert(parent, 0, mulopTree);
-    
-    cleanOnFail(mulopTree, status);
-    
-    return 1;
-}
-
-int parseMul(GNode *tree, char *mul)
-{
-    return 1;
-}
-
-int parseAdop(GNode *tree, char *adop)
-{
-    return 1;
-}
-
-int parseAdd(GNode *tree, char *add)
-{
-    return 1;
-}
-
-int parseNum(GNode *parent, char *numStart)
-{
-    char *numEnd = numStart;
-    int strSize;
-    int status = isdigit(*numStart);
-    GNode *numberNode = g_node_new(GUINT_TO_POINTER(NUMBER));
-    GNode *storeNumber = g_node_new(NULL);
-    
-    printf("parseNum: %s\n", numStart);
-    
-    while(isdigit(*numEnd)) numEnd++;
-    
-    if(*numEnd == '.')
-    {
-        do { numEnd++; } while(isdigit(*numEnd));
-    }
-    
-    numStart = substring(numStart, numEnd);
-    
-    storeNumber->data = numStart;
-    
-    status = status && !*numEnd;
-    
-    g_node_insert(parent, 0, numberNode);
-    g_node_insert(numberNode, 0, storeNumber);
-    
-    cleanOnFail(numberNode, status);
-    
-    return status;
-}
-
-double decodeNumber(char *num)
-{
-    double integ = 0.0;
-    double frac = 0.0;
-    double div = 1.0;
-    int currDigit = *num;
-    
-    assert(isdigit(currDigit));
-
-    do
-    {
-        integ *= 10.0;
-        integ += (double)(currDigit - '0');
-        currDigit = *++num;
-    }
-    while(isdigit(currDigit));
-
-    if(currDigit == '.')
-    {
-        currDigit = *++num;
-        assert(isdigit(currDigit));
-        do
-        {
-            frac *= 10.0;
-            div *= 10.0;
-            frac += (double)(currDigit - '0');
-            currDigit = *++num;
-        }
-        while(isdigit(currDigit));
-        assert(!currDigit);
-        frac /= div;
-    }
-   
-    return integ + frac;
-}
-
-gboolean freeNumber(GNode *node, gpointer dummy)
-{
-    if(GPOINTER_TO_INT(node->data) == NUMBER)
-    {
-        g_free(node->children->data);
-    }
-    
+    g_free(node->data);
     return FALSE;
 }
 
 void destroyParseTree(GNode *root)
 {
-    g_node_traverse(root, G_IN_ORDER, G_TRAVERSE_ALL, -1, freeNumber, NULL);
+    g_node_traverse(root, G_IN_ORDER, G_TRAVERSE_ALL, -1, freeNodeData, NULL);
     g_node_destroy(root);
 }
 
@@ -233,62 +296,27 @@ void outputParseTree(GNode *root, FILE *xml, int indent)
 {
     char indentation[indent+1];
     GNode *child;
-    char *tagName;
     
     for(int i = 0; i < indent; i++) indentation[i] = ' ';
     indentation[indent] = '\0';
     
     child = root->children;
     
-    switch(GPOINTER_TO_INT(root->data))
-    {
-        case START:
-        {
-            tagName = "Start";
-            break;
-        }
-        case EXOP:
-        {
-            tagName = "Exop";
-            break;
-        }
-        case EXP:
-        {
-            tagName = "Exp";
-            break;
-        }
-        case NUMBER:
-        {
-            tagName = "Number";
-            break;
-        }
-        case '(':
-        {
-            tagName = "(";
-            break;
-        }
-        case ')':
-        {
-            tagName = ")";
-            break;
-        }
-        case '^':
-        {
-            tagName = "^";
-            break;
-        }
-        default:
-        {
-            fprintf(xml, "%s%s\n", indentation, root->data);
-            return;
-        }
-    }
+    fprintf(xml, "%s<%s>\n", indentation, root->data);
     
-    fprintf(xml, "%s<%s>\n", indentation, tagName);
-    while(child)
+    if(!strcmp(root->data, "NUMBER"))
     {
-        outputParseTree(child, xml, indent + 4);
-        child = child->next;
+        fprintf(xml, "%s%lf\n", indentation, *(double *)child->data);
     }
-    fprintf(xml, "%s</%s>\n", indentation, tagName);
+    else
+    {
+        while(child)
+        {
+            outputParseTree(child, xml, indent + 4);
+            child = child->next;
+        }
+    }
+
+    fprintf(xml, "%s</%s>\n", indentation, root->data);
 }
+

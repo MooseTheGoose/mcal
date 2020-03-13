@@ -1,5 +1,4 @@
 #include "tokenizer.h"
-#include "sutils.h"
 #include "error.h"
 #include <string.h>
 #include <stdlib.h>
@@ -8,7 +7,7 @@
 
 static const char *OPERATORS = "()+-/*^";
 
-void tokenizeNum(GQueue *tokens, char **number)
+void tokenizeNum(GString *tokens, char **number)
 {
     int len = 1;
     char *num = *number;
@@ -20,46 +19,51 @@ void tokenizeNum(GQueue *tokens, char **number)
         dieWhen(!isdigit(num[len]), "Error: expected number in tokenizeNum at beginning of %s\n", num);
         while(isdigit(num[len])) len++;
     }
-    g_queue_push_tail(tokens, g_strndup(num, len));
+    g_string_append_len(tokens, num, len);
 
     *number = num + len;
 }
 
-GQueue *tokenize(char *expression)
+char **tokenize(char *expression)
 {
     int prefix;
-    GQueue *tokens = g_queue_new();
+    GString *tokens = g_string_new("");
+    char **finalTokens;
+    char *tmp;
+    char *ptr = expression;
 
-    while(*expression)
+    while(*ptr)
     {
-        while(isspace(prefix = *expression)) { expression++; }
+        while(isspace(prefix = *ptr)) ptr++;
 
         if(isOperatorToken(prefix))
         {
-            g_queue_push_tail(tokens, g_strndup(expression++, 1));
+            g_string_append_len(tokens, ptr++, 1);
         }
         else if(isdigit(prefix))
         {
-            tokenizeNum(tokens, &expression);
+            tokenizeNum(tokens, &ptr);
         }
         else
         {
-            dieWhen(prefix, "Error: Unknown token at prefix of %s\n", expression);
+            dieWhen(prefix, "Error: Unknown token in %s at char %d\n", 
+                    expression, ptr-expression+1);
         }
+        g_string_append_c(tokens, ' ');
     }
 
-    return tokens;
+    g_string_truncate(tokens, MAX(0, tokens->len-1));
+    tmp = g_string_free(tokens, FALSE);
+    g_strchomp(tmp);
+    finalTokens = g_strsplit(tmp, " ", -1);
+    g_free(tmp);
+
+    return finalTokens;
 }
 
-void destroyTokens(GQueue *tokens)
+void destroyTokens(GString *tokens)
 {
-    gpointer *curr = g_queue_pop_head(tokens);
-    while(curr)
-    {
-        g_free(curr);
-        curr = g_queue_pop_head(tokens);
-    }
-    g_queue_free(tokens);
+    g_string_free(tokens, TRUE);
 }
 
 int isOperatorToken(int op)

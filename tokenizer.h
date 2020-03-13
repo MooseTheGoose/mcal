@@ -3,10 +3,10 @@
 
 #include <glib.h>
 
-GQueue *tokenize(char *expression);
-void tokenizeNum(GQueue *tokens, char **number);
+char **tokenize(char *expression);
+void tokenizeNum(GString *tokens, char **number);
 int isOperatorToken(int op);
-void destroyTokens(GQueue *tokens);
+void destroyTokens(GString *tokens);
 
 #endif
 

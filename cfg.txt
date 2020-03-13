@@ -1,20 +1,24 @@
 # Start variable
-S <- E | A | M
+S <- E | A | M | U | N | (S)
+
+# Unary Minus operands
+Z <- N | (S)
+U <- -Z
 
 # Exponent operands
-P <- N | (S)
+P <- U | Z
 # Exponent variable
-E <- E^P | P^E | P
+E <- E^P | P^P
 
 # Multiply operands
 Q <- E | P
 # Multiply variable
-M <- M*Q | M/Q | Q/M | Q*M | Q
+M <- M*Q | Q*Q | M/Q | Q/Q 
 
 # Addition operands
 R <- M | Q
 # Addition variable
-A <- A+R | A-R | R+A | R-A | R | -R
+A <- A+R | A-R | R+R | R-R
  
 # Number variable
 I <- D | DI       

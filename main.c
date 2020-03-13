@@ -2,19 +2,31 @@
 #include <assert.h>
 #include "parse.h"
 #include "tokenizer.h"
+#include "decoder.h"
 
-void printToken(gpointer tok, gpointer dummy);
+void printTokens(char **tokens)
+{
+    char *currToken;
+    while((currToken = *tokens++)) 
+    { printf("%s\n", currToken); }
+}
 
 int main(int argc, char **argv)
 {
+    GNode *parseTree;
+
     assert(argc == 2);
-    GQueue *tokens = tokenize(argv[1]);
-    g_queue_foreach(tokens, printToken, NULL);
-    destroyTokens(tokens);
+    char **tokens = tokenize(argv[1]);
+    printTokens(tokens);
+    parseTree = deriveStart(tokens);
+    if(parseTree)
+    {
+        printf("Success!\n");
+        outputParseTree(parseTree, stdout, 0);
+        printf("%lf\n", decodeStart(parseTree));
+        destroyParseTree(parseTree);
+    }
     return 0;
 }
 
-void printToken(gpointer tok, gpointer dummy)
-{
-    printf("%s\n", tok);
-}
+
