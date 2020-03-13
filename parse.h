@@ -1,15 +1,10 @@
-#ifndef PARSE_H
+#ifndef PARSE_H 
 #define PARSE_H
 
 #include <glib.h>
 #include <string.h>
 #include "variables.h"
-
-/* Error utility. */
-void dieWhen(int condition, char *lastWords);
-
-/* String Utilities */
-char *substring(const char *left, const char *right);
+#include <stdio.h>
 
 /* Actual parsing functions */
 
@@ -22,6 +17,10 @@ int parseAdop(GNode *tree, char *adop);
 int parseAdd(GNode *tree, char *add);
 int parseNum(GNode *tree, char *numStart);
 double decodeNumber(char *num);
+
+void destroyParseTree(GNode *root);
+void cleanOnFail(GNode *root, int status);
+void outputParseTree(GNode *root, FILE *xml, int indent);
 
 #endif
 
